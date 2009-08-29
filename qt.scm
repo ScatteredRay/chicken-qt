@@ -80,14 +80,13 @@
          (->string i))))))
 
 (define-for-syntax param-list
-  (lambda (func params #!optional i)
+  (lambda (func params i)
     (if (null? params)
         '()
-        (let ((param (car params))
-              (i (if i i 0)))
+        (let ((param (car params)))
           (cons
            (func param i)
-           (param-list (cdr params) (+ i 1)))))))
+           (param-list func (cdr params) (+ i 1)))))))
 
 (define-syntax qt-class
   (lambda (e r c)
@@ -109,7 +108,7 @@
           (make-qt-class-type
            ',class-name
            ,(if (not (null? parent-name))
-                `(hash-table-ref qt-class-list ',parent-name)
+                `(hash-table-ref/default qt-class-list ',parent-name #f)
                 #f)))
 
          (define ,constructor
@@ -117,7 +116,7 @@
                   (lambda (param i)
                     (if (not (eq? param 'self))
                         param))
-                  constructor-params))
+                  constructor-params 0))
              (let ((,(r 'self)
                     (make-qt-class
                      (hash-table-ref qt-class-list ',class-name))))
@@ -130,7 +129,7 @@
                           'c-pointer
                           param)
                       (make-name r i)))
-                   constructor-params)
+                   constructor-params 0)
                  ,(apply
                    string-append
                    `("C_return(new "
@@ -142,20 +141,20 @@
                            (if (> i 0)
                                (string-append
                                 ", "
-                                make-name r i)
+                                (->string (make-name r i)))
                                (make-name r i))))
-                        constructor-params)
+                        constructor-params 0)
                      "));")))
                 ,@(param-list
                    (lambda (param i)
                      (if (eq? param 'self)
                          (r 'self)
                          param))
-                   constructor-params))))))))
+                   constructor-params 0)))))))))
 
-  (qt-class
-   (ImageWindow QMainWindow)
-   (New-ImageWindow self integer)))
+(qt-class
+ (ImageWindow QMainWindow)
+ (New-ImageWindow self integer))
 
 (define-syntax qt-app:exec
   (lambda (e r c)
@@ -177,6 +176,5 @@
  QMainWindow
  ((QWidget* parent 0))
  (parent))
-;;(foreign-lambda* c-pointer (()))
 
 (qt-app:exec ImageWindow)
