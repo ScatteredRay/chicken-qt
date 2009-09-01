@@ -20,7 +20,6 @@
             (append
              (list "class " (->string class-name) " : public " (->string parent-class)
                    "{"
-                   "	Q_OBJECT"
                    "	void* proxy_root;"
                    "public:"
                    (->string class-name) "("
