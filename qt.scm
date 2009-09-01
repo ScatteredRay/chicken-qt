@@ -30,11 +30,7 @@
                  ", "
                  (->string (caar param))
                  " "
-                 (->string (cadr param))
-                 (if (not (null? (cddr param)))
-                     (string-append
-                      " = "
-                      (->string (caddr param))))))
+                 (->string (cadr param))))
               constructor-params)
              (list
               ") :"
@@ -132,14 +128,15 @@
 
       
       `(begin
-         (hash-table-add!
+         (hash-table-set!
           qt-class-list
           ',class-name
           (make-qt-class-type
            ',class-name
            ,(if (not (null? parent-name))
                 `(hash-table-ref/default qt-class-list ',parent-name #f)
-                #f)))
+                #f)
+           (make-hash-table)))
 
          (define ,constructor
            (lambda (,@(delete
@@ -152,40 +149,43 @@
                    constructor-params 0)))
              (let ((,(r 'self)
                     (make-qt-class
-                     (hash-table-ref qt-class-list ',class-name))))
-               ((foreign-lambda*
-                 c-pointer
-                 ,(param-list
-                   (lambda (param i)
-                     (list
+                     (hash-table-ref qt-class-list ',class-name)
+                     '())))
+               (qt-class:set-ptr!
+                ,(r 'self)
+                ((foreign-lambda*
+                  c-pointer
+                  ,(param-list
+                    (lambda (param i)
+                      (list
+                       (if (eq? param 'self)
+                           'scheme-object
+                           (cadr param))
+                       (make-name r i)))
+                    constructor-params 0)
+                  ,(apply
+                    string-append
+                    `("C_return(new "
+                      ,(->string class-name)
+                      "("
+                      ,@(param-list
+                         (lambda (param i)
+                           (->string
+                            (if (> i 0)
+                                (string-append
+                                 ", ("
+                                 (->string (car param))
+                                 ")"
+                                 (->string (make-name r i)))
+                                (make-name r i))))
+                         constructor-params 0)
+                      "));")))
+                 ,@(param-list
+                    (lambda (param i)
                       (if (eq? param 'self)
-                          'scheme-object
-                          (cadr param))
-                      (make-name r i)))
-                   constructor-params 0)
-                 ,(apply
-                   string-append
-                   `("C_return(new "
-                     ,(->string class-name)
-                     "("
-                     ,@(param-list
-                        (lambda (param i)
-                          (->string
-                           (if (> i 0)
-                               (string-append
-                                ", ("
-                                (->string (car param))
-                                ")"
-                                (->string (make-name r i)))
-                               (make-name r i))))
-                        constructor-params 0)
-                     "));")))
-                ,@(param-list
-                   (lambda (param i)
-                     (if (eq? param 'self)
-                         (r 'self)
-                         (make-name r i)))
-                   constructor-params 0)))))))))
+                          (r 'self)
+                          (make-name r i)))
+                    constructor-params 0))))))))))
 
 (define-syntax qt-app:exec
   (lambda (e r c)
@@ -217,7 +217,7 @@
  ImageWindow
  QMainWindow
  New-ImageWindow
- (((QWidget* c-pointer) parent 0))
+ (((QWidget* c-pointer) parent #f))
  (parent))
 
-(qt-app:exec-window! MyImageWindow  (New-ImageWindow 0))
+(qt-app:exec-window! MyImageWindow  (New-ImageWindow #f))
