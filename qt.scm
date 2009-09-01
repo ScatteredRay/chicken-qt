@@ -10,8 +10,9 @@
     (let
         ((class-name (cadr e))
          (parent-class (caddr e))
-         (constructor-params (cadddr e))
-         (parent-params (car (cddddr e))))
+         (constructor (cadddr e))
+         (constructor-params (car (cddddr e)))
+         (parent-params (cadr (cddddr e))))
       `(begin
          (foreign-declare
           ,(apply
@@ -28,7 +29,7 @@
               (lambda (param)
                 (string-append
                  ", "
-                 (->string (car param))
+                 (->string (caar param))
                  " "
                  (->string (cadr param))
                  (if (not (null? (cddr param)))
@@ -55,7 +56,16 @@
               "CHICKEN_delete_gc_root(proxy_root);"
               "}"
 
-              "};"))))))))
+              "};"))))
+
+         (qt-class
+          (,class-name ,parent-class)
+          (,constructor
+           self
+           ,@(map
+              (lambda (param)
+                (car param))
+              constructor-params)))))))
 
 (define-record-type qt-class-type
   (make-qt-class-type name parent message-table)
@@ -70,14 +80,35 @@
   (type qt-class:get-type)
   (qt-ptr qt-class:get-ptr qt-class:set-ptr!))
 
+(define (get-class-method type method)
+  (hash-table-ref
+   (qt-class:get-message-table type)
+   method
+   (lambda ()
+     (if (qt-class:get-parent type)
+         (get-class-method
+          (qt-class:get-parent type)
+          method)
+         '()))))
+
+(define (call-impl method class . params)
+  (apply
+   (get-class-method (qt-class:get-type class) method)
+   (cons class params)))
+
+(define-syntax call
+  (syntax-rules ()
+    ((call method class params ...)
+     (call-impl 'method class params ...))))
+
 (define qt-class-list (make-hash-table))
 
 (define-for-syntax make-name
   (lambda (r i)
-    (r (string->symbol
-        (string-append
-         "s"
-         (->string i))))))
+    (string->symbol
+     (string-append
+      "s"
+      (->string i)))))
 
 (define-for-syntax param-list
   (lambda (func params i)
@@ -112,11 +143,14 @@
                 #f)))
 
          (define ,constructor
-           (lambda (,@(param-list
-                  (lambda (param i)
-                    (if (not (eq? param 'self))
-                        param))
-                  constructor-params 0))
+           (lambda (,@(delete
+                  #f
+                  (param-list
+                   (lambda (param i)
+                     (if (not (eq? param 'self))
+                         (make-name r i)
+                         #f))
+                   constructor-params 0)))
              (let ((,(r 'self)
                     (make-qt-class
                      (hash-table-ref qt-class-list ',class-name))))
@@ -126,8 +160,8 @@
                    (lambda (param i)
                      (list
                       (if (eq? param 'self)
-                          'c-pointer
-                          param)
+                          'scheme-object
+                          (cadr param))
                       (make-name r i)))
                    constructor-params 0)
                  ,(apply
@@ -140,7 +174,9 @@
                           (->string
                            (if (> i 0)
                                (string-append
-                                ", "
+                                ", ("
+                                (->string (car param))
+                                ")"
                                 (->string (make-name r i)))
                                (make-name r i))))
                         constructor-params 0)
@@ -149,24 +185,31 @@
                    (lambda (param i)
                      (if (eq? param 'self)
                          (r 'self)
-                         param))
+                         (make-name r i)))
                    constructor-params 0)))))))))
-
-(qt-class
- (ImageWindow QMainWindow)
- (New-ImageWindow self integer))
 
 (define-syntax qt-app:exec
   (lambda (e r c)
-    (let ((MainWindow (cadr e)))
-      `(foreign-code
-        ,(string-append
-          "int argc = 0;"
-          "char** argv = NULL;"
-          "QApplication a(argc, argv);"
-          (->string MainWindow) " w;"
-          "w.show();"
-          "a.exec()")))))
+    (let ((window-var (cadr e))
+          (window-constructor (caaddr e))
+          (constructor-params (cdaddr e)))
+      `(begin
+         (define ,window-var '())
+         (define-external (,(r 'init-window)) scheme-object
+           (set! ,window-var
+                 (apply ,window-constructor ,constructor-params))
+           ,window-var)
+         (define-external (,(r 'finalize-window) (scheme-pointer window))
+           (call delete window))
+         (foreign-code
+          ,(string-append
+            "int argc = 0;"
+            "char** argv = NULL;"
+            "QApplication a(argc, argv);"
+            "C_word W = " (->string (r 'init-window)) "();"
+            ;"w.show();"
+            "a.exec()"
+            (->string (r 'finalize-window)) "(W);"))))))
 
 (foreign-declare "#include <QtGui/QApplication>")
 (foreign-declare "#include <QtGui/QMainWindow>")
@@ -174,7 +217,8 @@
 (qt-proxy-class
  ImageWindow
  QMainWindow
- ((QWidget* parent 0))
+ New-ImageWindow
+ (((QWidget* c-pointer) parent 0))
  (parent))
 
-(qt-app:exec ImageWindow)
+(qt-app:exec-window! MyImageWindow  (New-ImageWindow 0))
