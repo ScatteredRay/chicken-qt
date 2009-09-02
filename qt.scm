@@ -150,56 +150,57 @@
                          (make-name r i)
                          #f))
                    constructor-params 0)))
-             (let ((,(r 'self)
-                    (make-qt-class
-                     (hash-table-ref qt-class-list ',class-name)
-                     '())))
-               (qt-class:set-ptr!
-                ,(r 'self)
-                ((foreign-safe-lambda*
-                  c-pointer
-                  ,(param-list
-                    (lambda (param i)
-                      (list
-                       (if (eq? param 'self)
-                           'scheme-object
-                           (cadr param))
-                       (make-name r i)))
-                    constructor-params 0)
-                  ,(apply
-                    string-append
-                    `("C_return(new "
-                      ,(->string class-name)
-                      "("
-                      ,@(param-list
-                         (lambda (param i)
-                           (->string
-                            (if (> i 0)
-                                (string-append
-                                 ", ("
-                                 (->string (car param))
-                                 ")"
-                                 (->string (make-name r i)))
-                                (make-name r i))))
-                         constructor-params 0)
-                      "));")))
-                 ,@(param-list
-                    (lambda (param i)
-                      (if (eq? param 'self)
-                          (r 'self)
-                          (make-name r i)))
-                    constructor-params 0))))))))))
+             (letrec ((,(r 'self)
+                       (make-qt-class
+                        (hash-table-ref qt-class-list ',class-name)
+                        ((foreign-safe-lambda*
+                          c-pointer
+                          ,(param-list
+                            (lambda (param i)
+                              (list
+                               (if (eq? param 'self)
+                                   'scheme-object
+                                   (cadr param))
+                               (make-name r i)))
+                            constructor-params 0)
+                          ,(apply
+                            string-append
+                            `("C_return(new "
+                              ,(->string class-name)
+                              "("
+                              ,@(param-list
+                                 (lambda (param i)
+                                   (->string
+                                    (if (> i 0)
+                                        (string-append
+                                         ", ("
+                                         (->string (car param))
+                                         ")"
+                                         (->string (make-name r i)))
+                                        (make-name r i))))
+                                 constructor-params 0)
+                              "));")))
+                         ,@(param-list
+                            (lambda (param i)
+                              (if (eq? param 'self)
+                                  (r 'self)
+                                  (make-name r i)))
+                            constructor-params 0)))))
+               ,(r 'self))))))))
 
 (define-syntax qt-app:exec-window!
   (lambda (e r c)
     (let ((window-var (cadr e))
           (window-constructor (caaddr e))
-          (constructor-params (cdaddr e)))
+          (constructor-params (cdaddr e))
+          (window-func (cadddr e)))
       `(begin
          (define ,window-var '())
          (define-external (init_window) scheme-object
            (set! ,window-var
                  (,window-constructor ,@constructor-params))
+           (,window-func
+            (qt-class:get-ptr ,window-var))
            ,window-var)
          (define-external (finalize_window (scheme-object window))
            void
@@ -226,4 +227,12 @@
  (((QWidget* c-pointer) parent #f))
  (parent))
 
-(qt-app:exec-window! MyImageWindow  (New-ImageWindow #f))
+(qt-app:exec-window!
+ MyImageWindow
+ (New-ImageWindow #f)
+ (lambda (Window)
+   ((foreign-lambda*
+     void
+     ((c-pointer Window))
+     "((QWidget*)Window)->show();")
+    Window)))
