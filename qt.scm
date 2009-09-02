@@ -1,3 +1,6 @@
+(declare (emit-external-prototypes-first))
+(require-extension srfi-1)
+
 (define class-name 'ImageWindow)
 (define parent-class 'QMainWindow)
 (define constructor-params '((QWidget* parent 0)))
@@ -153,7 +156,7 @@
                      '())))
                (qt-class:set-ptr!
                 ,(r 'self)
-                ((foreign-lambda*
+                ((foreign-safe-lambda*
                   c-pointer
                   ,(param-list
                     (lambda (param i)
@@ -187,28 +190,31 @@
                           (make-name r i)))
                     constructor-params 0))))))))))
 
-(define-syntax qt-app:exec
+(define-syntax qt-app:exec-window!
   (lambda (e r c)
     (let ((window-var (cadr e))
           (window-constructor (caaddr e))
           (constructor-params (cdaddr e)))
       `(begin
          (define ,window-var '())
-         (define-external (,(r 'init-window)) scheme-object
+         (define-external (init_window) scheme-object
            (set! ,window-var
-                 (apply ,window-constructor ,constructor-params))
+                 (,window-constructor ,@constructor-params))
            ,window-var)
-         (define-external (,(r 'finalize-window) (scheme-pointer window))
+         (define-external (finalize_window (scheme-object window))
+           void
            (call delete window))
-         (foreign-code
-          ,(string-append
-            "int argc = 0;"
-            "char** argv = NULL;"
-            "QApplication a(argc, argv);"
-            "C_word W = " (->string (r 'init-window)) "();"
-            ;"w.show();"
-            "a.exec()"
-            (->string (r 'finalize-window)) "(W);"))))))
+         ((foreign-safe-lambda*
+           void
+           ()
+           ,(string-append
+             "int argc = 0;"
+             "char** argv = NULL;"
+             "QApplication a(argc, argv);"
+             "C_word W = init_window();"
+             ;;"w.show();"
+             "a.exec();"
+             "finalize_window(W);")))))))
 
 (foreign-declare "#include <QtGui/QApplication>")
 (foreign-declare "#include <QtGui/QMainWindow>")

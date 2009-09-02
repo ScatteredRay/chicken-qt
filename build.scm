@@ -16,5 +16,6 @@
 (build-cxx '(qt.cpp))
 
 (command LINK '-o OUTFILE LFLAGS LIBS OBJECT_FILES)
+(command 'install_name_tool '-change 'libchicken.dylib '/Users/Indy/bin/chicken4/lib/libchicken.dylib OUTFILE)
 
 (exit)
