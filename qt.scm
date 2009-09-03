@@ -89,6 +89,12 @@
           method)
          '()))))
 
+(define (qt-class:set-class-method! class name func)
+  (hash-table-set!
+   (qt-class:get-message-table (qt-class:get-type class))
+   name
+   func))
+
 (define (call-impl method class . params)
   (apply
    (get-class-method (qt-class:get-type class) method)
@@ -219,6 +225,94 @@
 
 (foreign-declare "#include <QtGui/QApplication>")
 (foreign-declare "#include <QtGui/QMainWindow>")
+
+;; (define-syntax qt-foreign-define
+;;   (syntax-rules ()
+;;     ((qt-foreign-define class (method self params ...) return body)
+;;      (qt-class:set-class-method!
+;;       class
+;;       'method
+;;       (lambda (self params ...)
+;;         ((foreign-safe-lambda*
+;;           return
+;;           (self params ...)
+;;           body)
+;;          (qt-class:get-ptr self)
+;;          params ...))))))
+
+(define-syntax qt-foreign-define
+  (lambda (e r c)
+    (let
+        ((class (cadr e))
+         (method (caaddr e))
+         (self (cadr (caddr e)))
+         (params (cddr (caddr e)))
+         (return (cadddr e))
+         (body (car (cddddr e))))
+      `(qt-class:set-class-method!
+        ,class
+        ',method
+        (lambda (,(car self)
+            ,@(map
+               car
+               params))
+          ((foreign-safe-lambda*
+            ,return
+            (,(cadr self)
+             ,@(map
+                cadr
+                params))
+            ,body)
+           (qt-class:get-ptr ,self)
+           ,@(map
+              car
+              params)))))))
+
+(define-syntax qt-define-method
+  (lambda (e r c)
+    (let ((class (cadr e))
+          (method (caaddr e))
+          (c-method (caaddr e))
+          (params (cdaddr e))
+          (return (cadddr e)))
+      (if (list? method)
+          (begin
+            (set! method (car method))
+            (set! c-method (cadr c-method))))
+      `(qt-foreign-define
+        ,class
+        (,method
+         (c-pointer self)
+         ,@(param-list
+            (lambda (param i)
+              (list
+               param
+               (make-name r i)))
+            params 0))
+        ,return
+        ,(apply
+          string-append
+          `(
+            ,(if (eq? return 'void)
+                 ""
+                 "C_return(")
+            "(("
+            ,(->string class)
+            "*)self)->"
+            ,(->string c-method)
+            "("
+            ,@(param-list
+               (lambda (param i)
+                 (string-append
+                  (if (> i 0)
+                      ", "
+                      "")
+                  (->string (make-name r i))))
+               params 0)
+            ,(if (eq? return 'void)
+                 ""
+                 ")")
+            ");"))))))
 
 (qt-proxy-class
  ImageWindow
