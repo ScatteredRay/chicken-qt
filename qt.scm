@@ -34,7 +34,7 @@
 
 (define (qt-class:set-class-method! class name func)
   (hash-table-set!
-   (qt-class:get-message-table (qt-class:get-type class))
+   (qt-class:get-message-table class)
    name
    func))
 
@@ -76,22 +76,22 @@
          (return (cadddr e))
          (body (car (cddddr e))))
       `(qt-class:set-class-method!
-        ,class
+        (hash-table-ref
+         qt-class-list
+         ',class)
         ',method
-        (lambda (,(car self)
+        (lambda (,(cadr self)
             ,@(map
-               car
+               cadr
                params))
           ((foreign-safe-lambda*
             ,return
-            (,(cadr self)
-             ,@(map
-                cadr
-                params))
+            (,self
+             ,@params)
             ,body)
-           (qt-class:get-ptr ,self)
+           (qt-class:get-ptr ,(cadr self))
            ,@(map
-              car
+              cadr
               params)))))))
 
 (define-syntax qt-define-method
@@ -209,7 +209,15 @@
                                   (r 'self)
                                   (make-name r i)))
                             constructor-params 0)))))
-               ,(r 'self))))))))
+               ,(r 'self))))
+         (qt-foreign-define
+          ,class-name
+          (delete (c-pointer self))
+          void
+          ,(string-append
+            "delete (("
+            (->string class-name)
+            "*)self);"))))))
 
 (define-syntax qt-proxy-class
   (lambda (e r c)
