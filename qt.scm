@@ -8,63 +8,6 @@
 
 ;; Macros need hygiene!
 
-(define-syntax qt-proxy-class
-  (lambda (e r c)
-    (let
-        ((class-name (cadr e))
-         (parent-class (caddr e))
-         (constructor (cadddr e))
-         (constructor-params (car (cddddr e)))
-         (parent-params (cadr (cddddr e))))
-      `(begin
-         (foreign-declare
-          ,(apply
-            string-append
-            (append
-             (list "class " (->string class-name) " : public " (->string parent-class)
-                   "{"
-                   "	void* proxy_root;"
-                   "public:"
-                   (->string class-name) "("
-                   "C_word proxy")
-             (map
-              (lambda (param)
-                (string-append
-                 ", "
-                 (->string (caar param))
-                 " "
-                 (->string (cadr param))))
-              constructor-params)
-             (list
-              ") :"
-              (->string parent-class) "(")
-             (map
-              (lambda (params)
-                (->string params))
-              parent-params)
-             (list
-              ")"
-              "{"
-              "	proxy_root = CHICKEN_new_gc_root();"
-              "	CHICKEN_gc_root_set(proxy_root, proxy);"
-              "}"
-
-              "~" (->string class-name) "()"
-              "{"
-              "CHICKEN_delete_gc_root(proxy_root);"
-              "}"
-
-              "};"))))
-
-         (qt-class
-          (,class-name ,parent-class)
-          (,constructor
-           self
-           ,@(map
-              (lambda (param)
-                (car param))
-              constructor-params)))))))
-
 (define-record-type qt-class-type
   (make-qt-class-type name parent message-table)
   qt-class-type?
@@ -122,123 +65,6 @@
           (cons
            (func param i)
            (param-list func (cdr params) (+ i 1)))))))
-
-(define-syntax qt-class
-  (lambda (e r c)
-    (let ((class-name (cadr e))
-          (parent-name '())
-          (constructor (caaddr e))
-          (constructor-params (cdaddr e)))
-
-      (if (list? class-name)
-          (begin
-            (set! parent-name (cadr class-name))
-            (set! class-name (car class-name))))
-
-      
-      `(begin
-         (hash-table-set!
-          qt-class-list
-          ',class-name
-          (make-qt-class-type
-           ',class-name
-           ,(if (not (null? parent-name))
-                `(hash-table-ref/default qt-class-list ',parent-name #f)
-                #f)
-           (make-hash-table)))
-
-         (define ,constructor
-           (lambda (,@(delete
-                  #f
-                  (param-list
-                   (lambda (param i)
-                     (if (not (eq? param 'self))
-                         (make-name r i)
-                         #f))
-                   constructor-params 0)))
-             (letrec ((,(r 'self)
-                       (make-qt-class
-                        (hash-table-ref qt-class-list ',class-name)
-                        ((foreign-safe-lambda*
-                          c-pointer
-                          ,(param-list
-                            (lambda (param i)
-                              (list
-                               (if (eq? param 'self)
-                                   'scheme-object
-                                   (cadr param))
-                               (make-name r i)))
-                            constructor-params 0)
-                          ,(apply
-                            string-append
-                            `("C_return(new "
-                              ,(->string class-name)
-                              "("
-                              ,@(param-list
-                                 (lambda (param i)
-                                   (->string
-                                    (if (> i 0)
-                                        (string-append
-                                         ", ("
-                                         (->string (car param))
-                                         ")"
-                                         (->string (make-name r i)))
-                                        (make-name r i))))
-                                 constructor-params 0)
-                              "));")))
-                         ,@(param-list
-                            (lambda (param i)
-                              (if (eq? param 'self)
-                                  (r 'self)
-                                  (make-name r i)))
-                            constructor-params 0)))))
-               ,(r 'self))))))))
-
-(define-syntax qt-app:exec-window!
-  (lambda (e r c)
-    (let ((window-var (cadr e))
-          (window-constructor (caaddr e))
-          (constructor-params (cdaddr e))
-          (window-func (cadddr e)))
-      `(begin
-         (define ,window-var '())
-         (define-external (init_window) scheme-object
-           (set! ,window-var
-                 (,window-constructor ,@constructor-params))
-           (,window-func
-            (qt-class:get-ptr ,window-var))
-           ,window-var)
-         (define-external (finalize_window (scheme-object window))
-           void
-           (call delete window))
-         ((foreign-safe-lambda*
-           void
-           ()
-           ,(string-append
-             "int argc = 0;"
-             "char** argv = NULL;"
-             "QApplication a(argc, argv);"
-             "C_word W = init_window();"
-             ;;"w.show();"
-             "a.exec();"
-             "finalize_window(W);")))))))
-
-(foreign-declare "#include <QtGui/QApplication>")
-(foreign-declare "#include <QtGui/QMainWindow>")
-
-;; (define-syntax qt-foreign-define
-;;   (syntax-rules ()
-;;     ((qt-foreign-define class (method self params ...) return body)
-;;      (qt-class:set-class-method!
-;;       class
-;;       'method
-;;       (lambda (self params ...)
-;;         ((foreign-safe-lambda*
-;;           return
-;;           (self params ...)
-;;           body)
-;;          (qt-class:get-ptr self)
-;;          params ...))))))
 
 (define-syntax qt-foreign-define
   (lambda (e r c)
@@ -313,6 +139,166 @@
                  ""
                  ")")
             ");"))))))
+
+(define-syntax qt-class
+  (lambda (e r c)
+    (let ((class-name (cadr e))
+          (parent-name '())
+          (constructor (caaddr e))
+          (constructor-params (cdaddr e)))
+
+      (if (list? class-name)
+          (begin
+            (set! parent-name (cadr class-name))
+            (set! class-name (car class-name))))
+
+      
+      `(begin
+         (hash-table-set!
+          qt-class-list
+          ',class-name
+          (make-qt-class-type
+           ',class-name
+           ,(if (not (null? parent-name))
+                `(hash-table-ref/default qt-class-list ',parent-name #f)
+                #f)
+           (make-hash-table)))
+
+         (define ,constructor
+           (lambda (,@(delete
+                  #f
+                  (param-list
+                   (lambda (param i)
+                     (if (not (eq? param 'self))
+                         (make-name r i)
+                         #f))
+                   constructor-params 0)))
+             (letrec ((,(r 'self)
+                       (make-qt-class
+                        (hash-table-ref qt-class-list ',class-name)
+                        ((foreign-safe-lambda*
+                          c-pointer
+                          ,(param-list
+                            (lambda (param i)
+                              (list
+                               (if (eq? param 'self)
+                                   'scheme-object
+                                   (cadr param))
+                               (make-name r i)))
+                            constructor-params 0)
+                          ,(apply
+                            string-append
+                            `("C_return(new "
+                              ,(->string class-name)
+                              "("
+                              ,@(param-list
+                                 (lambda (param i)
+                                   (->string
+                                    (if (> i 0)
+                                        (string-append
+                                         ", ("
+                                         (->string (car param))
+                                         ")"
+                                         (->string (make-name r i)))
+                                        (make-name r i))))
+                                 constructor-params 0)
+                              "));")))
+                         ,@(param-list
+                            (lambda (param i)
+                              (if (eq? param 'self)
+                                  (r 'self)
+                                  (make-name r i)))
+                            constructor-params 0)))))
+               ,(r 'self))))))))
+
+(define-syntax qt-proxy-class
+  (lambda (e r c)
+    (let
+        ((class-name (cadr e))
+         (parent-class (caddr e))
+         (constructor (cadddr e))
+         (constructor-params (car (cddddr e)))
+         (parent-params (cadr (cddddr e))))
+      `(begin
+         (foreign-declare
+          ,(apply
+            string-append
+            (append
+             (list "class " (->string class-name) " : public " (->string parent-class)
+                   "{"
+                   "	void* proxy_root;"
+                   "public:"
+                   (->string class-name) "("
+                   "C_word proxy")
+             (map
+              (lambda (param)
+                (string-append
+                 ", "
+                 (->string (caar param))
+                 " "
+                 (->string (cadr param))))
+              constructor-params)
+             (list
+              ") :"
+              (->string parent-class) "(")
+             (map
+              (lambda (params)
+                (->string params))
+              parent-params)
+             (list
+              ")"
+              "{"
+              "	proxy_root = CHICKEN_new_gc_root();"
+              "	CHICKEN_gc_root_set(proxy_root, proxy);"
+              "}"
+
+              "~" (->string class-name) "()"
+              "{"
+              "CHICKEN_delete_gc_root(proxy_root);"
+              "}"
+
+              "};"))))
+
+         (qt-class
+          (,class-name ,parent-class)
+          (,constructor
+           self
+           ,@(map
+              (lambda (param)
+                (car param))
+              constructor-params)))))))
+
+(define-syntax qt-app:exec-window!
+  (lambda (e r c)
+    (let ((window-var (cadr e))
+          (window-constructor (caaddr e))
+          (constructor-params (cdaddr e))
+          (window-func (cadddr e)))
+      `(begin
+         (define ,window-var '())
+         (define-external (init_window) scheme-object
+           (set! ,window-var
+                 (,window-constructor ,@constructor-params))
+           (,window-func
+            (qt-class:get-ptr ,window-var))
+           ,window-var)
+         (define-external (finalize_window (scheme-object window))
+           void
+           (call delete window))
+         ((foreign-safe-lambda*
+           void
+           ()
+           ,(string-append
+             "int argc = 0;"
+             "char** argv = NULL;"
+             "QApplication a(argc, argv);"
+             "C_word W = init_window();"
+             ;;"w.show();"
+             "a.exec();"
+             "finalize_window(W);")))))))
+
+(foreign-declare "#include <QtGui/QApplication>")
+(foreign-declare "#include <QtGui/QMainWindow>")
 
 (qt-proxy-class
  ImageWindow
