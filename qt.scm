@@ -301,6 +301,7 @@
              (lambda (proxy)
                (apply qt-proxy-callback proxy))
              proxies)
+          
           (foreign-declare
            ,(apply
              string-append
@@ -354,9 +355,55 @@
                            'destructor)))
                "(CHICKEN_gc_root_ref(proxy_root));"
                "CHICKEN_delete_gc_root(proxy_root);"
-               "}"
-
-               "};"))))
+               "}")
+              
+               ;; Proxy method wrappers
+              (map
+               (lambda (proxy)
+                 (match
+                   proxy
+                   ((proxy-name params return-type func)
+                    (apply
+                     string-append
+                     (append
+                      (list
+                       (->string return-type)
+                       " "
+                       (->string proxy-name)
+                       "(")
+                      (param-list
+                       (lambda (param i)
+                         (string-append
+                          (if (> i 0)
+                              ", "
+                              "")
+                          (->string (car param))
+                          " "
+                          (->string
+                           (make-name i))))
+                       params
+                       0)
+                      (list
+                       ")"
+                       "{"
+                       (if (eq? return-type 'void)
+                           ""
+                           "")
+                       (->string
+                        (qt-proxy-callback-name proxy-name))
+                       "(CHICKEN_gc_root_ref(proxy_root)")
+                      (map-names
+                       (lambda (param name)
+                         (string-append
+                          ", "
+                          (->string name)))
+                       params)
+                      (list
+                       ");"
+                       "}"))))))
+               proxies)
+              
+              (list "};"))))
 
           (qt-class
            (,class-name ,parent-class)
@@ -420,5 +467,5 @@
    ((foreign-lambda*
      void
      ((c-pointer Window))
-     "((QWidget*)Window)->show();")
+     "((QWidget*)Window)->show(); ((ImageWindow*)Window)->SelectImage(false);")
     Window)))
