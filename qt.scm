@@ -348,6 +348,11 @@
 
                "~" (->string class-name) "()"
                "{"
+               (->string (qt-proxy-callback-name
+                          (symbol-append
+                           class-name
+                           'destructor)))
+               "(CHICKEN_gc_root_ref(proxy_root));"
                "CHICKEN_delete_gc_root(proxy_root);"
                "}"
 
