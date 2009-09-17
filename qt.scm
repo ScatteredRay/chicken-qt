@@ -467,5 +467,5 @@
    ((foreign-lambda*
      void
      ((c-pointer Window))
-     "((QWidget*)Window)->show(); ((ImageWindow*)Window)->SelectImage(false);")
+     "((QWidget*)Window)->show();")
     Window)))
