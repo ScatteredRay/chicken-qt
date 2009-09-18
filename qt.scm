@@ -462,7 +462,12 @@
 (foreign-declare "#include <QtGui/QMainWindow>")
 
 (qt-class
- QMainWindow
+ QWidget
+ (make-QWidget (QWidget* c-pointer))
+ ((show () void)))
+
+(qt-class
+ (QMainWindow QWidget)
  (make-QMainWindow (QWidget* c-pointer))
  ((isAnimated () bool)))
 
@@ -484,9 +489,4 @@
  MyImageWindow
  (New-ImageWindow #f)
  (lambda (Window)
-   ((foreign-lambda*
-     void
-     ((c-pointer Window))
-     "((QWidget*)Window)->show();")
-    (qt-class:get-ptr Window))
-   (print (call isAnimated Window))))
+   (call show Window)))
