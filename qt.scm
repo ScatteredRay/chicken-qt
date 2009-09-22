@@ -186,7 +186,7 @@
   (lambda (e r c)
     (match
       e
-      (('qt-class class-name (constructor . constructor-params) method-list)
+      (('qt-class class-name constructor-list method-list)
 
        (set! parent-name '())
 
@@ -206,55 +206,60 @@
                  #f)
             (make-hash-table)))
 
-          (define ,constructor
-            (lambda (,@(delete
-                   #f
-                   (param-list
-                    (lambda (param i)
-                      (if (not (eq? param 'self))
-                          (make-name i)
-                          #f))
-                    constructor-params 0)))
-              (letrec ((,(r 'self)
-                        (make-qt-class
-                         (hash-table-ref qt-class-list ',class-name)
-                         ((foreign-safe-lambda*
-                           c-pointer
-                           ,(param-list
-                             (lambda (param i)
-                               (list
-                                (if (eq? param 'self)
-                                    'scheme-object
-                                    (cadr param))
-                                (make-name i)))
-                             constructor-params 0)
-                           ,(apply
-                             string-append
-                             `("C_return(new "
-                               ,(->string class-name)
-                               "("
+          ,(match
+             constructor-list
+             ((constructor . constructor-params)
+              `(define ,constructor
+                 (lambda (,@(delete
+                        #f
+                        (param-list
+                         (lambda (param i)
+                           (if (not (eq? param 'self))
+                               (make-name i)
+                               #f))
+                         constructor-params 0)))
+                   (letrec ((,(r 'self)
+                             (make-qt-class
+                              (hash-table-ref qt-class-list ',class-name)
+                              ((foreign-safe-lambda*
+                                c-pointer
+                                ,(param-list
+                                  (lambda (param i)
+                                    (list
+                                     (if (eq? param 'self)
+                                         'scheme-object
+                                         (cadr param))
+                                     (make-name i)))
+                                  constructor-params 0)
+                                ,(apply
+                                  string-append
+                                  `("C_return(new "
+                                    ,(->string class-name)
+                                    "("
+                                    ,@(param-list
+                                       (lambda (param i)
+                                         (string-append
+                                          (if (> i 0)
+                                              ", "
+                                              "")
+                                          (if (eq? param 'self)
+                                              ""
+                                              (string-append
+                                               "("
+                                               (->string (car param))
+                                               ")"))
+                                          (->string (make-name i))))
+                                       constructor-params 0)
+                                    "));")))
                                ,@(param-list
                                   (lambda (param i)
-                                    (string-append
-                                     (if (> i 0)
-                                         ", "
-                                         "")
-                                     (if (eq? param 'self)
-                                         ""
-                                         (string-append
-                                          "("
-                                          (->string (car param))
-                                          ")"))
-                                     (->string (make-name i))))
-                                  constructor-params 0)
-                               "));")))
-                          ,@(param-list
-                             (lambda (param i)
-                               (if (eq? param 'self)
-                                   (r 'self)
-                                   (make-name i)))
-                             constructor-params 0)))))
-                ,(r 'self))))
+                                    (if (eq? param 'self)
+                                        (r 'self)
+                                        (make-name i)))
+                                  constructor-params 0)))))
+                     ,(r 'self)))))
+             (()
+              ''()))
 
           ,@(map
              (lambda (method)
@@ -460,16 +465,43 @@
 
 (foreign-declare "#include <QtGui/QApplication>")
 (foreign-declare "#include <QtGui/QMainWindow>")
+(foreign-declare "#include <QtUiTools/QUiLoader>")
+(foreign-declare "#include <QtCore/QFile>")
 
 (qt-class
- QWidget
+ QObject
+ (make-QObject (QObject* c-pointer))
+ ())
+
+(qt-class
+ (QWidget QObject)
  (make-QWidget (QWidget* c-pointer))
  ((show () void)))
+
+(qt-class
+ (QIODevice QObject)
+ ()
+ ())
+
+(qt-class
+ QString
+ (make-QString (char* c-string))
+ ())
+
+(qt-class
+ (QFile QIODevice)
+ (make-QFile (QString& (ref (struct QString))))
+ ())
 
 (qt-class
  (QMainWindow QWidget)
  (make-QMainWindow (QWidget* c-pointer))
  ((isAnimated () bool)))
+
+(qt-class
+ (QUiLoader QObject)
+ (make-QUiLoader (QObject* c-pointer))
+ ((load ((c-pointer (struct QIODevice))  (c-pointer (struct QWidget))) c-pointer)))
 
 (qt-proxy-class
  ImageWindow
