@@ -28,6 +28,11 @@
           method)
          '()))))
 
+(define (maybe-get-qt-ptr var)
+  (if (qt-class? var)
+      (qt-class:get-ptr var)
+      var))
+
 (define (qt-class:set-class-method! class name func)
   (hash-table-set!
    (qt-class:get-message-table class)
@@ -133,7 +138,10 @@
             ,body)
            (qt-class:get-ptr ,(cadr self))
            ,@(map
-              cadr
+              (lambda (param)
+                (list
+                 'maybe-get-qt-ptr
+                 (cadr param)))
               params)))))))
 
 (define-syntax qt-define-method
@@ -221,42 +229,47 @@
                    (letrec ((,(r 'self)
                              (make-qt-class
                               (hash-table-ref qt-class-list ',class-name)
-                              ((foreign-safe-lambda*
-                                c-pointer
-                                ,(param-list
-                                  (lambda (param i)
-                                    (list
-                                     (if (eq? param 'self)
-                                         'scheme-object
-                                         (cadr param))
-                                     (make-name i)))
-                                  constructor-params 0)
-                                ,(apply
-                                  string-append
-                                  `("C_return(new "
-                                    ,(->string class-name)
-                                    "("
-                                    ,@(param-list
-                                       (lambda (param i)
-                                         (string-append
-                                          (if (> i 0)
-                                              ", "
-                                              "")
-                                          (if (eq? param 'self)
-                                              ""
-                                              (string-append
-                                               "("
-                                               (->string (car param))
-                                               ")"))
-                                          (->string (make-name i))))
-                                       constructor-params 0)
-                                    "));")))
-                               ,@(param-list
-                                  (lambda (param i)
-                                    (if (eq? param 'self)
-                                        (r 'self)
-                                        (make-name i)))
-                                  constructor-params 0)))))
+                              '())))
+                     (qt-class:set-ptr!
+                      ,(r 'self)
+                      ((foreign-safe-lambda*
+                        c-pointer
+                        ,(param-list
+                          (lambda (param i)
+                            (list
+                             (if (eq? param 'self)
+                                 'scheme-object
+                                 (cadr param))
+                             (make-name i)))
+                          constructor-params 0)
+                        ,(apply
+                          string-append
+                          `("C_return(new "
+                            ,(->string class-name)
+                            "("
+                            ,@(param-list
+                               (lambda (param i)
+                                 (string-append
+                                  (if (> i 0)
+                                      ", "
+                                      "")
+                                  (if (eq? param 'self)
+                                      ""
+                                      (string-append
+                                       "("
+                                       (->string (car param))
+                                       ")"))
+                                  (->string (make-name i))))
+                               constructor-params 0)
+                            "));")))
+                       ,@(param-list
+                          (lambda (param i)
+                            (if (eq? param 'self)
+                                (r 'self)
+                                (list
+                                 'maybe-get-qt-ptr
+                                 (make-name i))))
+                          constructor-params 0)))
                      ,(r 'self)))))
              (()
               ''()))
@@ -295,6 +308,19 @@
         destructor-func
         proxies)
        `(begin
+          ;; Pre-Constructor callback
+          ;; qt-ptr doesn't get set before the constructor is called, so we set it here
+          ,(qt-proxy-callback
+            (symbol-append
+             class-name
+             'preconstruct)
+            `((,(symbol-append
+                 class-name '*)
+               c-pointer))
+            'void
+            '(lambda (self c-self)
+               (qt-class:set-ptr! self c-self)))
+          
           ;; Constructor callback
           ,(qt-proxy-callback
             (symbol-append
@@ -352,6 +378,11 @@
                "{"
                "	proxy_root = CHICKEN_new_gc_root();"
                "	CHICKEN_gc_root_set(proxy_root, proxy);"
+               (->string (qt-proxy-callback-name
+                          (symbol-append
+                           class-name
+                           'preconstruct)))
+               "(proxy, this);"
                (->string (qt-proxy-callback-name
                           (symbol-append
                            class-name
@@ -509,6 +540,13 @@
  (New-ImageWindow
    (((QWidget* c-pointer) parent #f))
    (lambda (self parent)
+     (let* ((UIFileLoc (make-QString "imagewindow.ui"))
+            (UIFile (make-QFile UIFileLoc))
+            (UILoader (make-QUiLoader self)))
+       (call load UILoader UIFile self)
+       (call delete UILoader)
+       (call delete UIFile)
+       (call delete UIFileLoc))
      (print "Constructing!")))
  (parent)
  (lambda (self)
