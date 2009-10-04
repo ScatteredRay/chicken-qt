@@ -81,3 +81,16 @@
 	   ".o")
 	  OBJECT_FILES)))
   SOURCES))
+
+(define (build-c SOURCES)
+ (for-each
+  (lambda (file)
+	(command CC '-c CFLAGS INCPATH file)
+	(set!
+	 OBJECT_FILES
+	 (cons
+	  (string-append
+	   (pathname-strip-extension (->string file))
+	   ".o")
+	  OBJECT_FILES)))
+  SOURCES))
