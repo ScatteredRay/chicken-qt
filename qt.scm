@@ -496,6 +496,8 @@
 
 (foreign-declare "#include <QtGui/QApplication>")
 (foreign-declare "#include <QtGui/QMainWindow>")
+(foreign-declare "#include <QtGui/QVBoxLayout>")
+(foreign-declare "#include <QtGui/QPushButton>")
 (foreign-declare "#include <QtUiTools/QUiLoader>")
 (foreign-declare "#include <QtCore/QFile>")
 
@@ -507,7 +509,8 @@
 (qt-class
  (QWidget QObject)
  (make-QWidget (QWidget* c-pointer))
- ((show () void)))
+ ((show () void)
+  (setLayout ((c-pointer (struct QLayout))) void)))
 
 (qt-class
  (QIODevice QObject)
@@ -522,17 +525,35 @@
 (qt-class
  (QFile QIODevice)
  (make-QFile (QString& (ref (struct QString))))
- ())
+ ((open ((enum QIODevice::OpenModeFlag)) bool)
+  (close () void)))
 
 (qt-class
  (QMainWindow QWidget)
  (make-QMainWindow (QWidget* c-pointer))
- ((isAnimated () bool)))
+ ((isAnimated () bool)
+  (setCentralWidget ((c-pointer (struct QWidget))) void)
+  (centralWidget () (c-pointer (struct QWidget)))))
 
 (qt-class
  (QUiLoader QObject)
  (make-QUiLoader (QObject* c-pointer))
  ((load ((c-pointer (struct QIODevice))  (c-pointer (struct QWidget))) c-pointer)))
+
+(qt-class
+ QPushButton
+ (make-QPushButton (QString& (ref (struct QString))) (QWidget* (c-pointer (struct QWidget))))
+ ())
+
+(qt-class
+ QBoxLayout
+ ()
+ ((addWidget ((c-pointer (struct QWidget))) void)))
+
+(qt-class
+ (QVBoxLayout QBoxLayout)
+ (make-QVBoxLayout (QWidget* (c-pointer (struct QWidget))))
+ ())
 
 (qt-proxy-class
  ImageWindow
@@ -542,9 +563,10 @@
    (lambda (self parent)
      (let* ((UIFileLoc (make-QString "imagewindow.ui"))
             (UIFile (make-QFile UIFileLoc))
-            (UILoader (make-QUiLoader self)))
-       (call load UILoader UIFile self)
-       (call delete UILoader)
+            (UILoader (make-QUiLoader self))
+            (UIWidget (call load UILoader UIFile self)))
+       (call setCentralWidget self UIWidget)
+       (call close UIFile)
        (call delete UIFile)
        (call delete UIFileLoc))
      (print "Constructing!")))
