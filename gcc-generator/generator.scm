@@ -10,7 +10,11 @@
 "int plugin_init (struct plugin_name_args* plugin_info,
                  struct plugin_gcc_version* version)
 {
+ CHICKEN_initialize(0, 0, 0, C_toplevel);
+ CHICKEN_run(NULL);
  const char *plugin_name = plugin_info->base_name;
  register_callback (plugin_name, PLUGIN_FINISH_TYPE, handle_struct, NULL);
  return 0;
 }" )
+
+(return-to-host)
