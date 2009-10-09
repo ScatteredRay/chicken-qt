@@ -1,5 +1,6 @@
 (declare (emit-external-prototypes-first))
 
+(import-for-syntax chicken)
 (import-for-syntax matchable)
 
 (define-syntax define-foreign-enum
@@ -12,11 +13,14 @@
           (name `(,(r 'define) ,name (,(r 'foreign-value) ,(symbol->string name) ,(r 'int)))))
          (cdr e)))))
 
+(foreign-declare "#include <config.h>")
 (foreign-declare "#include <gcc-plugin.h>")
 (foreign-declare "#include <system.h>")
 (foreign-declare "#include <coretypes.h>")
 (foreign-declare "#include <tree.h>")
 (foreign-declare "#include <tree-pass.h>")
+(foreign-declare "#define CUMULATIVE_ARGS int") ;; Not defined for some reason.
+(foreign-declare "#include <cp/cp-tree.h>")
 (foreign-declare "int plugin_is_GPL_compatible;")
 
 (foreign-declare
@@ -35,25 +39,40 @@
   UNION_TYPE
   ENUMERAL_TYPE)
 
-(define tree-purpose
-  (foreign-lambda* c-pointer ((c-pointer arg))
-                   "C_return(TREE_PURPOSE((tree)arg));"))
+(define-for-syntax gcc-rename
+  (compose string->symbol string-downcase (cut string-translate <> "_" "-") symbol->string))
 
-(define identifier-pointer
-  (foreign-lambda* c-string ((c-pointer arg))
-                   "C_return(IDENTIFIER_POINTER((tree)arg));"))
+(define-syntax define-gcc-tree-func
+  (lambda (e r c)
+    (match
+     e
+     (('define-gcc-tree-func CName ret)
+      `(define
+         ,(gcc-rename CName)
+         (foreign-lambda* ,ret ((c-pointer arg))
+                          ,(string-append
+                            "C_return("
+                            (symbol->string CName)
+                            "((tree)arg));")))))))
 
-(define decl-name
-  (foreign-lambda* c-pointer ((c-pointer arg))
-                   "C_return(DECL_NAME((tree)arg));"))
+(define-syntax gcc-tree-func-list
+  (lambda (e r c)
+    `(begin
+       ,@(map
+          (lambda (tree-func)
+            `(define-gcc-tree-func ,@tree-func))
+          (cdr e)))))
 
-(define type-name
-  (foreign-lambda* c-pointer ((c-pointer arg))
-                   "C_return(TYPE_NAME((tree)arg));"))
-
-(define tree-code
-  (foreign-lambda* int ((c-pointer arg))
-                   "C_return(TREE_CODE((tree)arg));"))
+(gcc-tree-func-list
+ (IDENTIFIER_POINTER c-string)
+ (DECL_NAME c-pointer)
+ (TYPE_NAME c-pointer)
+ (TREE_CODE int)
+ (TREE_PURPOSE c-pointer)
+ (TREE_VALUE c-pointer)
+ (TREE_CHAIN c-pointer)
+ (CLASSTYPE_DECLARED_CLASS bool)
+ (TYPE_METHODS))
 
 (define tree-code-name
   (foreign-lambda* c-string ((int arg))
@@ -66,7 +85,9 @@
 
 (define-external (handle_struct (c-pointer gcc_data) (c-pointer user_data)) void
   (print (tree-code-name (tree-code gcc_data)))
-  (if (eq? (tree-code gcc_data) RECORD_TYPE)
-      (print (identifier-pointer (type-name gcc_data)))))
+  (when (and
+         (eq? (tree-code gcc_data) RECORD_TYPE)
+         (classtype-declared-class gcc_data))
+    (print (identifier-pointer (decl-name (type-name gcc_data))))))
 
 (return-to-host)
