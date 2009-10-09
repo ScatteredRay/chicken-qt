@@ -37,7 +37,16 @@
 (define-foreign-enum
   RECORD_TYPE
   UNION_TYPE
-  ENUMERAL_TYPE)
+  ENUMERAL_TYPE
+  POINTER_TYPE)
+
+(define void-list-node?
+  (foreign-lambda* bool ((c-pointer list_node))
+                   "C_return(list_node == void_list_node);"))
+
+(define-foreign-enum
+  NULL_TREE) ;; Not actually an enum
+(define (gcc-null-list? x) (not x))
 
 (define-for-syntax gcc-rename
   (compose string->symbol string-downcase (cut string-translate <> "_" "-") symbol->string))
@@ -66,13 +75,19 @@
 (gcc-tree-func-list
  (IDENTIFIER_POINTER c-string)
  (DECL_NAME c-pointer)
+ (DECL_ASSEMBLER_NAME c-pointer)
  (TYPE_NAME c-pointer)
  (TREE_CODE int)
+ (TREE_TYPE c-pointer)
  (TREE_PURPOSE c-pointer)
  (TREE_VALUE c-pointer)
  (TREE_CHAIN c-pointer)
+ (TYPE_ARG_TYPES c-pointer)
  (CLASSTYPE_DECLARED_CLASS bool)
- (TYPE_METHODS))
+ (TYPE_METHODS c-pointer)
+ (DECL_RESULT c-pointer)
+ (DECL_ARGUMENTS c-pointer)
+ (DECL_CONTEXT c-pointer))
 
 (define tree-code-name
   (foreign-lambda* c-string ((int arg))
@@ -83,11 +98,40 @@
                    "tree aname = DECL_P((tree)decl) ? DECL_NAME((tree)decl) : (tree)decl;
 					C_return(aname ? IDENTIFIER_POINTER(aname) : \"\");"))
 
+(define (gcc-type-name type)
+  (if (eq? (tree-code type)
+           POINTER_TYPE)
+      (string-append (gcc-type-name (tree-type type)) "*")
+      (identifier-pointer (decl-name (type-name type)))))
+
 (define-external (handle_struct (c-pointer gcc_data) (c-pointer user_data)) void
-  (print (tree-code-name (tree-code gcc_data)))
   (when (and
          (eq? (tree-code gcc_data) RECORD_TYPE)
          (classtype-declared-class gcc_data))
-    (print (identifier-pointer (decl-name (type-name gcc_data))))))
+    (newline)
+    (newline)
+    (print (identifier-pointer (decl-name (type-name gcc_data))))
+    (letrec ((dump-methods
+              (lambda (method-lst)
+                (if (gcc-null-list? method-lst)
+                 '()
+                 (let*
+                     ((func-type (tree-type method-lst))
+                      (result-type (tree-type func-type)))
+                   (newline)
+                   (print (gcc-type-name result-type))
+                   (print (identifier-pointer (decl-name method-lst)))
+                   (letrec ((dump-arguments
+                             (lambda (arg-list)
+                               (if (or
+                                    (gcc-null-list? arg-list) ;; If we get this before a void list node then it's vararg
+                                    (void-list-node? arg-list)) 
+                                   '()
+                                   (begin
+                                     (print (gcc-type-name (tree-value arg-list)))
+                                     (dump-arguments (tree-chain arg-list)))))))
+                     (dump-arguments (type-arg-types func-type)))
+                   (dump-methods (tree-chain method-lst)))))))
+      (dump-methods (type-methods gcc_data)))))
 
 (return-to-host)
