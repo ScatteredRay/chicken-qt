@@ -1,4 +1,3 @@
-(require-extension riaxpander)
 (require-extension srfi-1)
 (require-extension filepath)
 (require-extension files)
