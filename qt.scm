@@ -2,6 +2,11 @@
 (require-extension srfi-1)
 (import-for-syntax matchable)
 
+;; There exists no way to call foreign-type-declaration, so hack it
+
+(define-for-syntax (foreign-type-decl-hack typesym)
+  (string-substitute "-ptr" "*" (->string typesym)))
+
 ;; Macros need hygiene!
 
 (define-record-type qt-class-type
@@ -58,6 +63,10 @@
       "s"
       (->string i)))))
 
+(define-for-syntax ptr-type-name
+  (lambda (sym)
+    (symbol-append sym '-ptr)))
+
 (define-for-syntax param-list
   (lambda (func params i)
     (if (null? params)
@@ -102,7 +111,7 @@
                        ,@(map-names
                           (lambda (param name)
                             (list
-                             (cadr param)
+                             param
                              name))
                           params))
        ,return
@@ -139,9 +148,7 @@
            (qt-class:get-ptr ,(cadr self))
            ,@(map
               (lambda (param)
-                (list
-                 'maybe-get-qt-ptr
-                 (cadr param)))
+                (cadr param))
               params)))))))
 
 (define-syntax qt-define-method
@@ -214,6 +221,20 @@
                  #f)
             (make-hash-table)))
 
+          (define-foreign-type
+            ,(ptr-type-name class-name)
+            (c-pointer (struct ,class-name))
+            maybe-get-qt-ptr
+            (lambda (qt-ptr)
+              (letrec ((,(r 'self)
+                          (make-qt-class
+                           (hash-table-ref qt-class-list ',class-name)
+                           '())))
+                (qt-class:set-ptr!
+                 ,(r 'self)
+                 qt-ptr)
+                ,(r 'self))))
+
           ,(match
              constructor-list
              ((constructor . constructor-params)
@@ -226,6 +247,9 @@
                                (make-name i)
                                #f))
                          constructor-params 0)))
+                   ;; Can't use the foreign type cohersion functions, because
+                   ;; if we need to pass the scheme ptr to C we need a
+                   ;; reference before the call.
                    (letrec ((,(r 'self)
                              (make-qt-class
                               (hash-table-ref qt-class-list ',class-name)
@@ -239,7 +263,7 @@
                             (list
                              (if (eq? param 'self)
                                  'scheme-object
-                                 (cadr param))
+                                 param)
                              (make-name i)))
                           constructor-params 0)
                         ,(apply
@@ -253,12 +277,6 @@
                                   (if (> i 0)
                                       ", "
                                       "")
-                                  (if (eq? param 'self)
-                                      ""
-                                      (string-append
-                                       "("
-                                       (->string (car param))
-                                       ")"))
                                   (->string (make-name i))))
                                constructor-params 0)
                             "));")))
@@ -266,9 +284,7 @@
                           (lambda (param i)
                             (if (eq? param 'self)
                                 (r 'self)
-                                (list
-                                 'maybe-get-qt-ptr
-                                 (make-name i))))
+                                (make-name i)))
                           constructor-params 0)))
                      ,(r 'self)))))
              (()
@@ -314,9 +330,8 @@
             (symbol-append
              class-name
              'preconstruct)
-            `((,(symbol-append
-                 class-name '*)
-               c-pointer))
+            `(,(ptr-type-name
+                class-name))
             'void
             '(lambda (self c-self)
                (qt-class:set-ptr! self c-self)))
@@ -362,7 +377,7 @@
                (lambda (param)
                  (string-append
                   ", "
-                  (->string (caar param))
+                  (foreign-type-decl-hack (car param))
                   " "
                   (->string (cadr param))))
                constructor-params)
@@ -428,7 +443,7 @@
                           (if (> i 0)
                               ", "
                               "")
-                          (->string (car param))
+                          (foreign-type-decl-hack param)
                           " "
                           (->string
                            (make-name i))))
@@ -503,14 +518,18 @@
 
 (qt-class
  QObject
- (make-QObject (QObject* c-pointer))
+ (make-QObject QObject-ptr)
  ())
 
 (qt-class
+ QLayout
+ () ())
+
+(qt-class
  (QWidget QObject)
- (make-QWidget (QWidget* c-pointer))
+ (make-QWidget QWidget-ptr)
  ((show () void)
-  (setLayout ((c-pointer (struct QLayout))) void)))
+  (setLayout (QLayout-ptr) void)))
 
 (qt-class
  (QIODevice QObject)
@@ -519,47 +538,47 @@
 
 (qt-class
  QString
- (make-QString (char* c-string))
+ (make-QString c-string)
  ())
 
 (qt-class
  (QFile QIODevice)
- (make-QFile (QString& (ref (struct QString))))
+ (make-QFile (ref (struct QString)))
  ((open ((enum QIODevice::OpenModeFlag)) bool)
   (close () void)))
 
 (qt-class
  (QMainWindow QWidget)
- (make-QMainWindow (QWidget* c-pointer))
+ (make-QMainWindow QWidget-ptr)
  ((isAnimated () bool)
-  (setCentralWidget ((c-pointer (struct QWidget))) void)
-  (centralWidget () (c-pointer (struct QWidget)))))
+  (setCentralWidget (QWidget-ptr) void)
+  (centralWidget () QWidget-ptr)))
 
 (qt-class
  (QUiLoader QObject)
- (make-QUiLoader (QObject* c-pointer))
- ((load ((c-pointer (struct QIODevice))  (c-pointer (struct QWidget))) c-pointer)))
+ (make-QUiLoader QObject-ptr)
+ ((load (QIODevice-ptr) c-pointer)))
 
 (qt-class
  QPushButton
- (make-QPushButton (QString& (ref (struct QString))) (QWidget* (c-pointer (struct QWidget))))
+ (make-QPushButton (ref (struct QString)) (c-pointer (struct QWidget)))
  ())
 
 (qt-class
  QBoxLayout
  ()
- ((addWidget ((c-pointer (struct QWidget))) void)))
+ ((addWidget (QWidget-ptr) void)))
 
 (qt-class
  (QVBoxLayout QBoxLayout)
- (make-QVBoxLayout (QWidget* (c-pointer (struct QWidget))))
+ (make-QVBoxLayout QWidget-ptr)
  ())
 
 (qt-proxy-class
  ImageWindow
  QMainWindow
  (New-ImageWindow
-   (((QWidget* c-pointer) parent #f))
+   ((QWidget-ptr parent #f))
    (lambda (self parent)
      (let* ((UIFileLoc (make-QString "imagewindow.ui"))
             (UIFile (make-QFile UIFileLoc))
@@ -573,7 +592,7 @@
  (parent)
  (lambda (self)
    (print "Destructing!"))
- ((SelectImage ((bool bool)) void
+ ((SelectImage (bool) void
                (lambda (self Selected?)
                  (print Selected?)))))
 
