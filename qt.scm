@@ -49,6 +49,7 @@
    (get-class-method (qt-class:get-type class) method)
    (cons class params)))
 
+;; Need better diagnostics when call params fail!
 (define-syntax call
   (syntax-rules ()
     ((call method class params ...)
@@ -66,6 +67,10 @@
 (define-for-syntax ptr-type-name
   (lambda (sym)
     (symbol-append sym '-ptr)))
+
+(define-for-syntax ref-type-name
+  (lambda (sym)
+    (symbol-append sym '-ref)))
 
 (define-for-syntax param-list
   (lambda (func params i)
@@ -234,6 +239,13 @@
                  ,(r 'self)
                  qt-ptr)
                 ,(r 'self))))
+
+          (define-foreign-type
+            ,(ref-type-name class-name)
+            (ref (struct ,class-name))
+            maybe-get-qt-ptr
+            (lambda (qt-ptr)
+              #f))
 
           ,(match
              constructor-list
@@ -543,7 +555,7 @@
 
 (qt-class
  (QFile QIODevice)
- (make-QFile (ref (struct QString)))
+ (make-QFile QString-ref)
  ((open ((enum QIODevice::OpenModeFlag)) bool)
   (close () void)))
 
@@ -557,7 +569,7 @@
 (qt-class
  (QUiLoader QObject)
  (make-QUiLoader QObject-ptr)
- ((load (QIODevice-ptr) c-pointer)))
+ ((load (QIODevice-ptr QWidget-ptr) QWidget-ptr)))
 
 (qt-class
  QPushButton
