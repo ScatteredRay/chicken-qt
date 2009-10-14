@@ -57,6 +57,17 @@
 
 (define qt-class-list (make-hash-table))
 
+(define-for-syntax qt-class:gen-make
+  (lambda (class-name self set)
+    `(letrec ((,self
+               (make-qt-class
+                (hash-table-ref qt-class-list ',class-name)
+                '())))
+       (qt-class:set-ptr!
+        ,self
+        ,set)
+       ,self)))
+
 (define-for-syntax make-name
   (lambda (i)
     (string->symbol
@@ -202,6 +213,8 @@
                  ")")
             ");"))))))
 
+
+;; TODO: Create a constructor call that causes the object to be destroyed with the Scheme object.
 (define-syntax qt-class
   (lambda (e r c)
     (match
@@ -231,21 +244,10 @@
             (c-pointer (struct ,class-name))
             maybe-get-qt-ptr
             (lambda (qt-ptr)
-              (letrec ((,(r 'self)
-                          (make-qt-class
-                           (hash-table-ref qt-class-list ',class-name)
-                           '())))
-                (qt-class:set-ptr!
-                 ,(r 'self)
-                 qt-ptr)
-                ,(r 'self))))
-
-          (define-foreign-type
-            ,(ref-type-name class-name)
-            (ref (struct ,class-name))
-            maybe-get-qt-ptr
-            (lambda (qt-ptr)
-              #f))
+              ,(qt-class:gen-make
+                class-name
+                (r 'self)
+                'qt-ptr)))
 
           ,(match
              constructor-list
@@ -262,13 +264,10 @@
                    ;; Can't use the foreign type cohersion functions, because
                    ;; if we need to pass the scheme ptr to C we need a
                    ;; reference before the call.
-                   (letrec ((,(r 'self)
-                             (make-qt-class
-                              (hash-table-ref qt-class-list ',class-name)
-                              '())))
-                     (qt-class:set-ptr!
-                      ,(r 'self)
-                      ((foreign-safe-lambda*
+                   ,(qt-class:gen-make
+                     class-name
+                     (r 'self)
+                     `((foreign-safe-lambda*
                         c-pointer
                         ,(param-list
                           (lambda (param i)
@@ -297,8 +296,7 @@
                             (if (eq? param 'self)
                                 (r 'self)
                                 (make-name i)))
-                          constructor-params 0)))
-                     ,(r 'self)))))
+                          constructor-params 0))))))
              (()
               ''()))
 
@@ -321,6 +319,30 @@
              "delete (("
              (->string class-name)
              "*)self);")))))))
+
+
+;; by-ref classes aren't allowed to have parent classes.
+(define-syntax qt-ref-class
+  (lambda (e r c)
+    `(begin
+       (qt-class ,@(cdr e))
+
+       ;; This relies on a class having a copy constructor, should ensure this is true.
+       ,(let ((class-name (cadr e)))
+          `(define-foreign-type
+             ,(ref-type-name class-name)
+             (ref (struct ,class-name))
+             maybe-get-qt-ptr
+             (lambda (qt-ptr)
+               ,(qt-class:gen-make
+                 class-name
+                 (r 'self)
+                 `((foreign-lambda* c-pointer (((ref (struct ,class-name)) ref))
+                                    ,(string-append
+                                      "C_return(new "
+                                      (->string class-name)
+                                      "(ref)) ;"))
+                   qt-ptr))))))))
 
 (define-syntax qt-proxy-class
   (lambda (e r c)
@@ -528,10 +550,21 @@
 (foreign-declare "#include <QtUiTools/QUiLoader>")
 (foreign-declare "#include <QtCore/QFile>")
 
+(qt-ref-class
+ QByteArray
+ ()
+ ((data () c-string)))
+
+(qt-ref-class
+ QString
+ (make-QString c-string)
+ ((toAscii () QByteArray-ref)))
+
 (qt-class
  QObject
  (make-QObject QObject-ptr)
- ())
+ ((objectName () QString-ref)
+  (setObjectName (QString-ref) void)))
 
 (qt-class
  QLayout
@@ -548,10 +581,6 @@
  ()
  ())
 
-(qt-class
- QString
- (make-QString c-string)
- ())
 
 (qt-class
  (QFile QIODevice)
@@ -596,6 +625,8 @@
             (UIFile (make-QFile UIFileLoc))
             (UILoader (make-QUiLoader self))
             (UIWidget (call load UILoader UIFile self)))
+       (call setObjectName self (make-QString "ImageWindowObject"))
+       (print (call data (call toAscii (call objectName self))))
        (call setCentralWidget self UIWidget)
        (call close UIFile)
        (call delete UIFile)
