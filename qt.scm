@@ -213,6 +213,49 @@
                  ")")
             ");"))))))
 
+(define-syntax qt-static-method
+  (lambda (e r c)
+    (match
+      e
+      (('qt-static-method
+        class-name
+        method-name
+        return-type
+        arg-types)
+       `(define
+          ,(symbol-append
+            class-name ': method-name)
+          (foreign-lambda*
+           ,return-type
+           ,(param-list
+             (lambda (param i)
+               (list
+                param
+                (make-name i)))
+             arg-types 0)
+           ,(apply
+             string-append
+             `(
+               ,(if (eq? return-type 'void)
+                    ""
+                    "C_return(")
+               ,(->string class-name)
+               "::"
+               ,(->string method-name)
+               "("
+               ,@(param-list
+                  (lambda (param i)
+                    (string-append
+                     (if (> i 0)
+                         ", "
+                         "")
+                     (->string (make-name i))))
+                  arg-types 0)
+               ")"
+               ,(if (eq? return-type 'void)
+                    ""
+                    ")")
+               ";"))))))))
 
 ;; TODO: Create a constructor call that causes the object to be destroyed with the Scheme object.
 (define-syntax qt-class
@@ -549,6 +592,7 @@
 (foreign-declare "#include <QtGui/QPushButton>")
 (foreign-declare "#include <QtUiTools/QUiLoader>")
 (foreign-declare "#include <QtCore/QFile>")
+(foreign-declare "#include <QtGui/QFileDialog>")
 
 (qt-ref-class
  QByteArray
@@ -581,6 +625,14 @@
  ()
  ())
 
+(qt-static-method
+ QFileDialog
+ getOpenFileName
+ QString-ref
+ (QWidget-ptr
+  QString-ref
+  QString-ref
+  QString-ref))
 
 (qt-class
  (QFile QIODevice)
@@ -627,6 +679,14 @@
             (UIWidget (call load UILoader UIFile self)))
        (call setObjectName self (make-QString "ImageWindowObject"))
        (print (call data (call toAscii (call objectName self))))
+       (print
+        (call data
+              (call toAscii
+                    (QFileDialog:getOpenFileName
+                     self
+                     (make-QString "Open Image")
+                     (make-QString "")
+                     (make-QString "Image Files (*.jpg *.jpeg)")))))
        (call setCentralWidget self UIWidget)
        (call close UIFile)
        (call delete UIFile)
