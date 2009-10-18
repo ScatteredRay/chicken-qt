@@ -365,6 +365,7 @@
 
 
 ;; by-ref classes aren't allowed to have parent classes.
+;; TODO: fix this, QPixmap has a parent.
 (define-syntax qt-ref-class
   (lambda (e r c)
     `(begin
@@ -593,6 +594,9 @@
 (foreign-declare "#include <QtUiTools/QUiLoader>")
 (foreign-declare "#include <QtCore/QFile>")
 (foreign-declare "#include <QtGui/QFileDialog>")
+(foreign-declare "#include <QtGui/QGraphicsScene>")
+(foreign-declare "#include <QtGui/QGraphicsView>")
+(foreign-declare "#include <QtGui/QGraphicsPixmapItem>")
 
 (qt-ref-class
  QByteArray
@@ -608,7 +612,8 @@
  QObject
  (make-QObject QObject-ptr)
  ((objectName () QString-ref)
-  (setObjectName (QString-ref) void)))
+  (setObjectName (QString-ref) void)
+  (findChild<QWidget*> (QString-ref) QObject-ptr)))
 
 (qt-class
  QLayout
@@ -639,6 +644,26 @@
  (make-QFile QString-ref)
  ((open ((enum QIODevice::OpenModeFlag)) bool)
   (close () void)))
+
+(qt-ref-class
+ QPixmap
+ (make-QPixmap QString-ref)
+ ())
+
+(qt-class
+ QGraphicsPixmapItem
+ ()
+ ())
+
+(qt-class
+ (QGraphicsScene QObject)
+ (make-QGraphicsScene)
+ ((addPixmap (QPixmap-ref) QGraphicsPixmapItem-ptr)))
+
+(qt-class
+ (QGraphicsView QWidget)
+ ()
+ ((setScene (QGraphicsScene-ptr) void)))
 
 (qt-class
  (QMainWindow QWidget)
@@ -676,9 +701,11 @@
      (let* ((UIFileLoc (make-QString "imagewindow.ui"))
             (UIFile (make-QFile UIFileLoc))
             (UILoader (make-QUiLoader self))
-            (UIWidget (call load UILoader UIFile self)))
+            (UIWidget (call load UILoader UIFile self))
+            (graphicsView (call findChild<QWidget*> UIWidget (make-QString "graphicsView"))))
        (call setObjectName self (make-QString "ImageWindowObject"))
        (print (call data (call toAscii (call objectName self))))
+       (print (call data (call toAscii (call objectName graphicsView))))
        (print
         (call data
               (call toAscii
