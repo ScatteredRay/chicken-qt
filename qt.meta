@@ -1,0 +1,11 @@
+;; -*- mode: scheme -*-
+
+((egg "qt.egg")
+ (synopsis
+  "Qt widget library bindings")
+ (category graphics)
+ (needs matchable)
+ (license "BSD")
+ (files "qt.setup" "qt.scm")
+ (doc-from-wiki)
+ (author "Nicholas \"Indy\" Ray"))

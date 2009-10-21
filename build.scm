@@ -9,9 +9,9 @@
 (defvar LFLAGS -headerpad_max_install_names -g -m64)
 (defvar LIBS -F/Library/Frameworks -F/usr/local/Trolltech/Qt-4.5.3/lib -L/usr/local/Trolltech/Qt-4.5.3/lib -L/Library/Frameworks -framework QtOpenGL -framework QtGui -framework AppKit -framework QtCore -lz -lm -framework ApplicationServices -L/Users/Indy/local/chicken4/lib -lchicken -lQtUiTools)
 
-(defvar OUTFILE qtchicken)
+(defvar OUTFILE qt.so)
 
-(command CSC '-c++ '-t 'qt.scm)
+(command CSC '-s '-j 'qt '-c++ '-t 'qt.scm)
 
 (build-cxx '(qt.cpp))
 

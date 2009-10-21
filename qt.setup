@@ -1,0 +1,11 @@
+;; -*- mode: scheme -*-
+
+(load "build.scm")
+
+(compile -s -02 qt.import.scm)
+
+(install-extension
+ 'qt
+ '("qt.setup" "qt.so" "qt.import.so")
+ '((version 0.1)
+   (documentation "qt.html")))
