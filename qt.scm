@@ -1,6 +1,7 @@
 (module qt *
   (import scheme chicken foreign data-structures extras srfi-1 srfi-69)
   (declare (emit-external-prototypes-first))
+  (require-extension srfi-69)
   (import-for-syntax matchable)
 
   ;; There exists no way to call foreign-type-declaration, so hack it
@@ -560,33 +561,36 @@
                  constructor-params))
              ()))))))
 
-  (define-syntax qt-app:exec-window!
+  (define-syntax qt-app:create-exec-window!
     (lambda (e r c)
-      (let ((window-var (cadr e))
-            (window-constructor (caaddr e))
-            (constructor-params (cdaddr e))
-            (window-func (cadddr e)))
-        `(begin
-           (define ,window-var '())
-           (define-external (init_window) scheme-object
-             (set! ,window-var
-                   (,window-constructor ,@constructor-params))
-             (,window-func
+      (match
+        e
+        (('qt-app:create-exec-window!
+          create-func
+          window-var
+          (window-constructor . constructor-params)
+          window-func)
+         `(define (,create-func)
+            (define ,window-var '())
+            (define-external (init_window) scheme-object
+              (set! ,window-var
+                    (,window-constructor ,@constructor-params))
+              (,window-func
+               ,window-var)
               ,window-var)
-             ,window-var)
-           (define-external (finalize_window (scheme-object window))
-             void
-             (call delete window))
-           ((foreign-safe-lambda*
-             void
-             ()
-             ,(string-append
-               "int argc = 0;"
-               "char** argv = NULL;"
-               "QApplication a(argc, argv);"
-               "C_word W = init_window();"
-               "a.exec();"
-               "finalize_window(W);")))))))
+            (define-external (finalize_window (scheme-object window))
+              void
+              (call delete window))
+            ((foreign-safe-lambda*
+              void
+              ()
+              ,(string-append
+                "int argc = 0;"
+                "char** argv = NULL;"
+                "QApplication a(argc, argv);"
+                "C_word W = init_window();"
+                "a.exec();"
+                "finalize_window(W);"))))))))
 
   (foreign-declare "#include <QtGui/QApplication>")
   (foreign-declare "#include <QtGui/QMainWindow>")
@@ -727,8 +731,11 @@
                  (lambda (self Selected?)
                    (print Selected?)))))
 
-  (qt-app:exec-window!
+  (qt-app:create-exec-window!
+   initialize-qt
    MyImageWindow
    (New-ImageWindow #f)
    (lambda (Window)
-     (call show Window))))
+     (call show Window)))
+
+  (initialize-qt))
