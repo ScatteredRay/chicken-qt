@@ -571,10 +571,9 @@
           (window-constructor . constructor-params)
           window-func)
          `(define (,create-func)
-            (define ,window-var '())
             (define-external (init_window) scheme-object
-              (set! ,window-var
-                    (,window-constructor ,@constructor-params))
+              (define ,window-var
+                (,window-constructor ,@constructor-params))
               (,window-func
                ,window-var)
               ,window-var)
@@ -736,6 +735,4 @@
    MyImageWindow
    (New-ImageWindow #f)
    (lambda (Window)
-     (call show Window)))
-
-  (initialize-qt))
+     (call show Window))))
