@@ -567,29 +567,28 @@
         e
         (('qt-app:create-exec-window!
           create-func
-          window-var
-          (window-constructor . constructor-params)
-          window-func)
-         `(define (,create-func)
-            (define-external (init_window) scheme-object
-              (define ,window-var
-                (,window-constructor ,@constructor-params))
-              (,window-func
-               ,window-var)
-              ,window-var)
-            (define-external (finalize_window (scheme-object window))
-              void
-              (call delete window))
-            ((foreign-safe-lambda*
-              void
-              ()
-              ,(string-append
-                "int argc = 0;"
-                "char** argv = NULL;"
-                "QApplication a(argc, argv);"
-                "C_word W = init_window();"
-                "a.exec();"
-                "finalize_window(W);"))))))))
+          window-var)
+         `(begin
+            ;; Define-external doesn't get closure environment,
+            ;; needs to be global.
+            (define global-window-func #f)
+            (define (,create-func window-func)
+              (set! global-window-func window-func)
+              (define-external (init_window) scheme-object
+                (global-window-func))
+              (define-external (finalize_window (scheme-object window))
+                void
+                (call delete window))
+              ((foreign-safe-lambda*
+                void
+                ()
+                ,(string-append
+                  "int argc = 0;"
+                  "char** argv = NULL;"
+                  "QApplication a(argc, argv);"
+                  "C_word W = init_window();"
+                  "a.exec();"
+                  "finalize_window(W);")))))))))
 
   (foreign-declare "#include <QtGui/QApplication>")
   (foreign-declare "#include <QtGui/QMainWindow>")
@@ -732,7 +731,4 @@
 
   (qt-app:create-exec-window!
    initialize-qt
-   MyImageWindow
-   (New-ImageWindow #f)
-   (lambda (Window)
-     (call show Window))))
+   MyImageWindow))
