@@ -9,6 +9,28 @@
   (define-for-syntax (foreign-type-decl-hack typesym)
     (string-substitute "-ptr" "*" (->string typesym)))
 
+  (define-record-type qt-proxy
+    (make-qt-proxy member-table)
+    qt-proxy?
+    (member-table qt-proxy:get-member-table))
+
+  (define (qt-class:get-proxy-member class member)
+    (hash-table-ref
+     (qt-proxy:get-member-table
+      (qt-class:get-proxy
+       class))
+     member))
+
+  (define (proxy-call-impl method class . params)
+    (apply
+     (qt-class:get-proxy-member class method)
+     (cons class params)))
+
+  (define-syntax proxy-call
+    (syntax-rules ()
+      ((proxy-call method class params ...)
+       (proxy-call-impl 'method class params ...))))
+
   ;; Macros need hygiene!
 
   (define-record-type qt-class-type
@@ -22,7 +44,8 @@
     (make-qt-class type qt-ptr)
     qt-class?
     (type qt-class:get-type)
-    (qt-ptr qt-class:get-ptr qt-class:set-ptr!))
+    (qt-ptr qt-class:get-ptr qt-class:set-ptr!)
+    (proxy qt-class:get-proxy qt-class:set-proxy!))
 
   (define (get-class-method type method)
     (hash-table-ref
@@ -60,11 +83,14 @@
   (define qt-class-list (make-hash-table))
 
   (define-for-syntax qt-class:gen-make
-    (lambda (class-name self set)
+    (lambda (class-name self set preconstruct-func)
       `(letrec ((,self
                  (make-qt-class
                   (hash-table-ref qt-class-list ',class-name)
                   '())))
+         ,(if preconstruct-func
+              `(,preconstruct-func ,self)
+              '#f)
          (qt-class:set-ptr!
           ,self
           ,set)
@@ -292,20 +318,21 @@
                 ,(qt-class:gen-make
                   class-name
                   (r 'self)
-                  'qt-ptr)))
+                  'qt-ptr
+                  #f)))
 
             ,(match
                constructor-list
                ((constructor . constructor-params)
                 `(define ,constructor
                    (lambda (,@(delete
-                               #f
-                               (param-list
-                                (lambda (param i)
-                                  (if (not (eq? param 'self))
-                                      (make-name i)
-                                      #f))
-                                constructor-params 0)))
+                          #f
+                          (param-list
+                           (lambda (param i)
+                             (if (not (eq? param 'self))
+                                 (make-name i)
+                                 #f))
+                           constructor-params 0)))
                      ;; Can't use the foreign type cohersion functions, because
                      ;; if we need to pass the scheme ptr to C we need a
                      ;; reference before the call.
@@ -314,14 +341,18 @@
                        (r 'self)
                        `((foreign-safe-lambda*
                           c-pointer
-                          ,(param-list
-                            (lambda (param i)
-                              (list
-                               (if (eq? param 'self)
-                                   'scheme-object
-                                   param)
-                               (make-name i)))
-                            constructor-params 0)
+                          ,(delete
+                            #f
+                            (param-list
+                             (lambda (param i)
+                               (if (eq? param 'proxy)
+                                   #f
+                                   (list
+                                    (if (eq? param 'self)
+                                        'scheme-object
+                                        param)
+                                    (make-name i))))
+                             constructor-params 0))
                           ,(apply
                             string-append
                             `("C_return(new "
@@ -329,19 +360,38 @@
                               "("
                               ,@(param-list
                                  (lambda (param i)
-                                   (string-append
-                                    (if (> i 0)
-                                        ", "
-                                        "")
-                                    (->string (make-name i))))
+                                   (if (eq? param 'proxy)
+                                       ""
+                                       (string-append
+                                        (if (> i 0)
+                                            ", "
+                                            "")
+                                        (->string (make-name i)))))
                                  constructor-params 0)
                               "));")))
-                         ,@(param-list
-                            (lambda (param i)
-                              (if (eq? param 'self)
-                                  (r 'self)
-                                  (make-name i)))
-                            constructor-params 0))))))
+                         ,@(delete
+                            #f
+                            (param-list
+                             (lambda (param i)
+                               (if (eq? param 'proxy)
+                                   #f
+                                   (if (eq? param 'self)
+                                       (r 'self)
+                                       (make-name i))))
+                             constructor-params 0)))
+                       (if (any (lambda (P) (eq? P 'proxy)) constructor-params)
+                           `(lambda (self)
+                              (qt-class:set-proxy!
+                               self
+                               ,@(delete
+                                  #f
+                                  (param-list
+                                   (lambda (param i)
+                                     (if (eq? param 'proxy)
+                                         (make-name i)
+                                         #f))
+                                   constructor-params 0))))
+                           #f)))))
                (()
                 ''()))
 
@@ -388,7 +438,8 @@
                                         "C_return(new "
                                         (->string class-name)
                                         "(ref)) ;"))
-                     qt-ptr))))))))
+                     qt-ptr)
+                   #f)))))))
 
   (define-syntax qt-proxy-class
     (lambda (e r c)
@@ -398,10 +449,8 @@
           class-name
           parent-class
           (constructor
-           constructor-params
-           constructor-func)
+           constructor-params)
           parent-params
-          destructor-func
           proxies)
          `(begin
             ;; Pre-Constructor callback
@@ -426,7 +475,7 @@
                  (car X))
                constructor-params)
               'void
-              constructor-func)
+              '(qt-class:get-proxy-member self 'constructor))
 
             ;; Destructor callback
             ,(qt-proxy-callback
@@ -435,12 +484,16 @@
                'destructor)
               '()
               'void
-              destructor-func)
+              '(qt-class:get-proxy-member self 'destructor))
 
             ;; Proxies callbacks
             ,@(map
                (lambda (proxy)
-                 (apply qt-proxy-callback proxy))
+                 (apply
+                  qt-proxy-callback
+                  (append
+                   proxy
+                   `((qt-class:get-proxy-member self ',(car proxy))))))
                proxies)
             
             (foreign-declare
@@ -508,7 +561,7 @@
                  (lambda (proxy)
                    (match
                      proxy
-                     ((proxy-name params return-type func)
+                     ((proxy-name params return-type)
                       (apply
                        string-append
                        (append
@@ -555,6 +608,7 @@
              (,class-name ,parent-class)
              (,constructor
               self
+              proxy
               ,@(map
                  (lambda (param)
                    (car param))
@@ -699,35 +753,9 @@
    ImageWindow
    QMainWindow
    (New-ImageWindow
-    ((QWidget-ptr parent #f))
-    (lambda (self parent)
-      (let* ((UIFileLoc (make-QString "imagewindow.ui"))
-             (UIFile (make-QFile UIFileLoc))
-             (UILoader (make-QUiLoader self))
-             (UIWidget (call load UILoader UIFile self))
-             (graphicsView (call findChild<QWidget*> UIWidget (make-QString "graphicsView"))))
-        (call setObjectName self (make-QString "ImageWindowObject"))
-        (print (call data (call toAscii (call objectName self))))
-        (print (call data (call toAscii (call objectName graphicsView))))
-        (print
-         (call data
-               (call toAscii
-                     (QFileDialog:getOpenFileName
-                      self
-                      (make-QString "Open Image")
-                      (make-QString "")
-                      (make-QString "Image Files (*.jpg *.jpeg)")))))
-        (call setCentralWidget self UIWidget)
-        (call close UIFile)
-        (call delete UIFile)
-        (call delete UIFileLoc))
-      (print "Constructing!")))
+    ((QWidget-ptr parent #f)))
    (parent)
-   (lambda (self)
-     (print "Destructing!"))
-   ((SelectImage (bool) void
-                 (lambda (self Selected?)
-                   (print Selected?)))))
+   ((SelectImage (bool) void)))
 
   (qt-app:create-exec-window!
    initialize-qt
