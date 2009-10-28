@@ -2,7 +2,7 @@
 
 (load "build.scm")
 
-(compile -s -02 qt.import.scm)
+(compile -s -O2 qt.import.scm)
 
 (install-extension
  'qt
