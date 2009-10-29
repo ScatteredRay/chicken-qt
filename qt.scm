@@ -678,11 +678,11 @@
   (qt-ref-class
    QByteArray
    ()
-   ((data () c-string)))
+   ((data () (const c-string))))
 
   (qt-ref-class
    QString
-   (make-QString c-string)
+   (make-QString (const c-string))
    ((toAscii () QByteArray-ref)))
 
   (qt-class
