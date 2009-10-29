@@ -31,6 +31,26 @@
       ((proxy-call method class params ...)
        (proxy-call-impl 'method class params ...))))
 
+  (define-syntax define-qt-class
+    (lambda (e r c)
+      (match e
+        (('define-qt-class
+           class-name
+           constructor
+           parent-constructor
+           methods ...)
+         `(define (,constructor . params)
+            (let ((qt-proxy-instance (make-qt-proxy (make-hash-table))))
+              ,@(map
+                 (match-lambda
+                  ((method-name params body ...)
+                   `(hash-table-set!
+                     (qt-proxy:get-member-table qt-proxy-instance)
+                     ',method-name
+                     (lambda ,params ,@body))))
+                 methods)
+              (apply ,parent-constructor (cons qt-proxy-instance params))))))))
+
   ;; Macros need hygiene!
 
   (define-record-type qt-class-type
@@ -750,9 +770,9 @@
    ())
 
   (qt-proxy-class
-   ImageWindow
+   QMainWindowProxy
    QMainWindow
-   (New-ImageWindow
+   (Make-MainWindow-Proxy
     ((QWidget-ptr parent #f)))
    (parent)
    ((SelectImage (bool) void)))
