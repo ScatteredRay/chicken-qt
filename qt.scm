@@ -470,6 +470,19 @@
           parent-class
           (constructor
            constructor-params)
+          parent-params)
+         `(qt-proxy-class
+           ,class-name
+           ,parent-class
+           (,constructor
+            ,constructor-params)
+           ,parent-params
+           ()))
+        (('qt-proxy-class
+          class-name
+          parent-class
+          (constructor
+           constructor-params)
           parent-params
           proxies)
          `(begin
@@ -774,8 +787,7 @@
    QMainWindow
    (Make-MainWindow-Proxy
     ((QWidget-ptr parent #f)))
-   (parent)
-   ((SelectImage (bool) void)))
+   (parent))
 
   (qt-app:create-exec-window!
    initialize-qt
