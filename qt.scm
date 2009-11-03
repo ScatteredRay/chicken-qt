@@ -677,6 +677,9 @@
                   "a.exec();"
                   "finalize_window(W);")))))))))
 
+  (define (qt:connect sender recv signal slot)
+    (call connect recv sender (string-append "2" signal) (string-append "1" slot)))
+
   (foreign-declare "#include <QtGui/QApplication>")
   (foreign-declare "#include <QtGui/QMainWindow>")
   (foreign-declare "#include <QtGui/QVBoxLayout>")
@@ -702,6 +705,7 @@
    QObject
    (make-QObject QObject-ptr)
    ((objectName () QString-ref)
+    (connect (QObject-ptr c-string c-string) bool)
     (setObjectName (QString-ref) void)
     (findChild<QWidget*> (QString-ref) QObject-ptr)))
 
